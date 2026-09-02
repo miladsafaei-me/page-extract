@@ -297,3 +297,137 @@ def test_contact_sheet_lays_every_image_out(tmp_path):
     assert out.exists()
     assert w == 470 * 4, "four columns"
     assert h > 300, "two rows for five images"
+
+
+# --- portability -----------------------------------------------------------
+# These pin the behaviours that made this unusable on Windows: no rasterizer to
+# be found, console encodings that cannot hold the text, and a console script
+# that is not on PATH.
+
+def test_backends_are_reported_in_preference_order():
+    from page_extract.raster import backends
+    names = [n for n, _, _ in backends()]
+    assert names == ["rsvg-convert", "cairosvg", "browser"]
+
+
+def test_every_backend_row_explains_itself():
+    from page_extract.raster import backends
+    for name, ok, detail in backends():
+        assert detail, f"{name} reported nothing"
+        if not ok:
+            assert len(detail) > 20, f"{name} does not say what to do about it"
+
+
+def test_the_no_backend_message_names_a_platform_specific_fix(monkeypatch):
+    from page_extract import raster
+    for platform, expect in (("win32", "Edge"), ("darwin", "brew"), ("linux", "dnf")):
+        monkeypatch.setattr(raster.sys, "platform", platform)
+        assert expect in raster.no_backend_message()
+
+
+def test_a_browser_override_is_searched_first(monkeypatch, tmp_path):
+    exe = tmp_path / "msedge.exe"
+    exe.write_text("")
+    monkeypatch.setenv("PAGE_EXTRACT_BROWSER", str(exe))
+    import importlib
+
+    from page_extract import raster
+    reloaded = importlib.reload(raster)
+    try:
+        assert str(exe) in reloaded._BROWSER_PATHS
+    finally:
+        monkeypatch.delenv("PAGE_EXTRACT_BROWSER")
+        importlib.reload(raster)
+
+
+def test_windows_and_mac_install_paths_are_searched():
+    from page_extract.raster import _BROWSER_PATHS
+    joined = " ".join(_BROWSER_PATHS)
+    assert "msedge.exe" in joined, "Edge ships with Windows; not looking there is the bug"
+    assert "chrome.exe" in joined
+    assert "/Applications/" in joined
+
+
+def test_svg_size_is_read_from_width_height_or_viewbox(tmp_path):
+    from page_extract.raster import _svg_size
+    a = tmp_path / "a.svg"
+    a.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" '
+                 'width="800" height="600"></svg>', encoding="utf-8")
+    assert _svg_size(a) == (800, 600)
+    b = tmp_path / "b.svg"
+    b.write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480"></svg>',
+                 encoding="utf-8")
+    assert _svg_size(b) == (640, 480)
+    c = tmp_path / "c.svg"
+    c.write_text("<svg></svg>", encoding="utf-8")
+    assert _svg_size(c) is None
+
+
+def test_missing_rasterizer_raises_with_the_fix_in_the_message(tmp_path, monkeypatch):
+    from page_extract import raster
+    from page_extract.errors import RasterError
+    monkeypatch.setattr(raster, "available", lambda: None)
+    svg = tmp_path / "x.svg"
+    svg.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>',
+                   encoding="utf-8")
+    with pytest.raises(RasterError) as exc:
+        raster.svg_to_png(svg, tmp_path / "x.png")
+    assert "SVG itself was still produced" in str(exc.value)
+
+
+def test_the_figure_command_keeps_the_svg_when_rasterizing_fails(tmp_path, capsys):
+    from page_extract.cli import main
+    out = tmp_path / "fig"
+    code = main(["figure", "hub_spokes",
+                 json.dumps({"hub": "H", "spokes": [{"label": "a"}, {"label": "b"},
+                                                    {"label": "c"}]}),
+                 "--out", str(out), "--backend", "browser"])
+    assert code == 3, "a lost raster is not the same failure as a lost drawing"
+    assert out.with_suffix(".svg").exists(), "the drawing must survive"
+    assert not out.with_suffix(".webp").exists()
+
+
+def test_output_is_made_unicode_safe_before_anything_prints(monkeypatch):
+    """A cp1252 console must not be able to kill a finished run."""
+    from page_extract.cli import _make_output_unicode_safe
+
+    class Narrow:
+        encoding = "cp1252"
+        def __init__(self): self.called = None
+        def reconfigure(self, **kw): self.called = kw
+
+    out, err = Narrow(), Narrow()
+    monkeypatch.setattr("sys.stdout", out)
+    monkeypatch.setattr("sys.stderr", err)
+    _make_output_unicode_safe()
+    assert out.called == {"encoding": "utf-8", "errors": "replace"}
+    assert err.called == {"encoding": "utf-8", "errors": "replace"}
+
+
+def test_unicode_safety_tolerates_a_stream_that_cannot_reconfigure(monkeypatch):
+    from page_extract.cli import _make_output_unicode_safe
+
+    class Pipe:
+        pass                                      # no reconfigure at all
+
+    monkeypatch.setattr("sys.stdout", Pipe())
+    monkeypatch.setattr("sys.stderr", Pipe())
+    _make_output_unicode_safe()                   # must not raise
+
+
+def test_the_module_entry_point_exists():
+    """`python -m page_extract` is the way in when Scripts\\ is not on PATH."""
+    import importlib.util
+    from pathlib import Path as P
+    import page_extract
+    assert (P(page_extract.__file__).parent / "__main__.py").exists()
+
+
+def test_doctor_runs_and_reports(capsys):
+    from page_extract.cli import main
+    main(["doctor"])
+    out = capsys.readouterr().out
+    assert "python packages" in out
+    assert "SVG rasterizer" in out
+    for backend in ("rsvg-convert", "cairosvg", "browser"):
+        assert backend in out

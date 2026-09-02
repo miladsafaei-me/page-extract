@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "page-extract"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn a web page into a folder: its substance as data, its visuals measured, and the ones worth keeping redrawn in your own brand."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,8 +15,12 @@ keywords = ["scraping", "extraction", "infographics", "svg", "charts", "ocr", "w
 # Three dependencies, all pure pip, so a plain install leaves nothing to set up:
 #   beautifulsoup4 + lxml - article extraction from real-world markup
 #   pillow                - image metrics, contact sheets, WebP output
-# SVG rasterization prefers a system `rsvg-convert` or `cairosvg` when present;
-# `page-extract doctor` says which one it found. No browser is required.
+# Rasterizing SVG is the one job that needs something outside pip, and no
+# rasterizer ships a usable Windows wheel (every candidate lands on cairo). So
+# three backends are tried in order — rsvg-convert, cairosvg, then a headless
+# Chrome/Edge/Chromium — and the browser one is why this works on Windows with
+# nothing installed: Edge ships with it. `page-extract doctor` says which was
+# found; without any of them the SVG is still written, only the WebP is not.
 dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.0",

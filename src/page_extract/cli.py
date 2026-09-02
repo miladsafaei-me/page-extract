@@ -8,7 +8,38 @@ from pathlib import Path
 
 from . import __version__
 from .brand import Brand
-from .errors import PageExtractError
+from .errors import PageExtractError, RasterError
+
+# What `doctor --fix` may install. Everything here is a normal PyPI wheel; the
+# command never touches the system package manager, never asks for admin
+# rights, and never installs outside the environment it is running in.
+_FIXABLE = {"bs4": "beautifulsoup4", "lxml": "lxml", "PIL": "pillow",
+            "cairosvg": "cairosvg"}
+
+
+def _make_output_unicode_safe():
+    """Stop a console encoding from destroying a finished run.
+
+    A Windows console is cp1252 by default, so printing a page title in Persian,
+    Turkish, or with nothing worse than a curly quote raises UnicodeEncodeError
+    — after the work is already done. Reconfiguring once here covers every print
+    in the package, and degrading a character beats losing the run.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass                                 # a pipe or a stream that cannot
+
+
+def _pip_install(packages):
+    """Install into the environment this tool is running in, never elsewhere."""
+    print(f"\ninstalling: {' '.join(packages)}")
+    # pip writes straight to the terminal, so anything still in our own buffer
+    # would appear after it and read as though the order were reversed.
+    sys.stdout.flush()
+    return subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", *packages]).returncode
 
 
 def _brand(args) -> Brand:
@@ -20,17 +51,47 @@ def _brand(args) -> Brand:
 
 
 def cmd_doctor(args):
-    from .raster import available
-    print(f"page-extract {__version__}")
+    from .raster import backends, find_browser, no_backend_message
+    print(f"page-extract {__version__}   ·   python "
+          f"{sys.version.split()[0]} on {sys.platform}\n")
+
+    missing = []
+    print("python packages")
     for mod in ("bs4", "lxml", "PIL"):
         try:
             __import__(mod)
-            print(f"  {mod:8} ok")
+            print(f"  [ok  ] {mod}")
         except ImportError:
-            print(f"  {mod:8} MISSING")
-    tool = available()
-    print(f"  raster   {tool or 'MISSING — install rsvg-convert or page-extract[cairo]'}")
-    return 0 if tool else 1
+            print(f"  [MISS] {mod}")
+            missing.append(_FIXABLE[mod])
+
+    print("\nSVG rasterizer  (needed only to write .webp; the .svg is always written)")
+    rows = backends()
+    for name, ok, detail in rows:
+        print(f"  [{'ok  ' if ok else '--  '}] {name:13} {detail}")
+    chosen = next((n for n, ok, _ in rows if ok), None)
+    if chosen:
+        print(f"\n  will use: {chosen}")
+    else:
+        print("\n  " + no_backend_message())
+        if not find_browser():
+            missing.append("cairosvg")
+
+    if missing and args.fix:
+        code = _pip_install(sorted(set(missing)))
+        if code != 0:
+            print("\npip failed — see its output above")
+            return code
+        print("\nre-checking...")
+        sys.stdout.flush()
+        return subprocess.run([sys.executable, "-m", "page_extract", "doctor"]).returncode
+
+    if missing:
+        print(f"\nmissing: {', '.join(sorted(set(missing)))}")
+        print("run `page-extract doctor --fix` to install what pip can supply")
+        return 1
+    print("\nready")
+    return 0
 
 
 def cmd_harvest(args):
@@ -62,8 +123,8 @@ def cmd_harvest(args):
             "stat_sentences": len(doc.stat_sentences),
             "extract": str(sdir / "extract.json"),
         }
-        print(f"  {sid} {url} -> {doc.word_count} words, {len(doc.tables)} tables, "
-              f"{len(kept)}/{len(doc.images)} images kept")
+        print(f"  {sid} {url} -> {doc.word_count} words, "
+              f"{len(doc.tables)} tables, {len(kept)}/{len(doc.images)} images kept")
     if gallery:
         sheet = out / "contact-sheet.jpg"
         size = contact_sheet(gallery, sheet)
@@ -103,8 +164,16 @@ def cmd_figure(args):
     svg_path = Path(args.out).with_suffix(".svg")
     svg_path.parent.mkdir(parents=True, exist_ok=True)
     svg_path.write_text(svg, encoding="utf-8")
-    webp, size = svg_to_webp(svg_path, Path(args.out).with_suffix(".webp"), args.width)
-    print(f"{svg_path}\n{webp}  {size[0]}x{size[1]}")
+    print(svg_path)
+    try:
+        webp, size = svg_to_webp(svg_path, Path(args.out).with_suffix(".webp"),
+                                 args.width, backend=args.backend)
+    except RasterError as exc:
+        # The drawing succeeded; only the raster step did not. Losing the SVG
+        # too would throw away the work and hide which half actually broke.
+        print(f"\nSVG written, WebP not: {exc}", file=sys.stderr)
+        return 3
+    print(f"{webp}  {size[0]}x{size[1]}")
     return 0
 
 
@@ -130,6 +199,7 @@ def cmd_policy(args):
 
 
 def main(argv=None):
+    _make_output_unicode_safe()
     ap = argparse.ArgumentParser(
         prog="page-extract",
         description="Turn a web page into a folder: substance as data, visuals "
@@ -137,7 +207,9 @@ def main(argv=None):
     ap.add_argument("--version", action="version", version=f"page-extract {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    d = sub.add_parser("doctor", help="Check that everything this needs is installed.")
+    d = sub.add_parser("doctor", help="Check requirements and report what is missing.")
+    d.add_argument("--fix", action="store_true",
+                   help="pip-install whatever is missing, into this environment.")
     d.set_defaults(func=cmd_doctor)
 
     h = sub.add_parser("harvest", help="Fetch pages, extract them, measure and sheet "
@@ -163,6 +235,8 @@ def main(argv=None):
     f.add_argument("--brand", help="Brand JSON file.")
     f.add_argument("--logo", help="Logo SVG, if you have no brand file yet.")
     f.add_argument("--width", type=int, default=1200)
+    f.add_argument("--backend", choices=("rsvg-convert", "cairosvg", "browser"),
+                   help="Force one rasterizer instead of the best available.")
     f.set_defaults(func=cmd_figure)
 
     b = sub.add_parser("builders", help="List figure builders and when to pick each.")

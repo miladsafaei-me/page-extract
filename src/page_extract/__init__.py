@@ -15,7 +15,7 @@ from .errors import (BrandError, ExtractionError, FetchError, PageExtractError,
 from .extract import Document, extract, extract_url
 from .policy import COMPONENT, FIGURE, decide
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __all__ = [
     "Brand", "Document", "extract", "extract_url", "decide", "COMPONENT", "FIGURE",
     "PageExtractError", "FetchError", "ExtractionError", "RasterError", "BrandError",

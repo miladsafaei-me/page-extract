@@ -37,13 +37,33 @@ pip install git+https://github.com/miladsafaei-me/page-extract
 page-extract doctor
 ```
 
-`doctor` tells you what is missing. The only thing not installed by pip is an
-SVG rasterizer; either is fine:
+If `page-extract` is not a recognised command, pip put it somewhere not on your
+PATH — usual on Windows. Everything also works as:
 
 ```bash
-sudo dnf install librsvg2-tools      # or: apt install librsvg2-bin
-pip install "page-extract[cairo]"    # or the pure-Python fallback
+python -m page_extract doctor
 ```
+
+`doctor` reports what is present and what is not; `doctor --fix` pip-installs
+whatever pip can supply, into the same environment.
+
+### The one thing outside pip
+
+Turning a drawn figure into a `.webp` needs an SVG rasterizer, and no rasterizer
+ships a usable Windows wheel — every candidate ends up needing a cairo library.
+So three backends are tried in order, and **you almost certainly already have
+one**:
+
+| Backend | Where it comes from |
+|---|---|
+| `rsvg-convert` | `dnf install librsvg2-tools` · `apt install librsvg2-bin` · `brew install librsvg` |
+| `cairosvg` | `pip install "page-extract[cairo]"` — needs a cairo library, so Linux and macOS |
+| **a headless browser** | Chrome, Edge, Chromium or Brave, already installed. **On Windows this is why nothing needs installing: Edge ships with it.** |
+
+Installed somewhere unusual? `PAGE_EXTRACT_BROWSER=C:\path\to\msedge.exe`.
+
+**Without any of them nothing is lost except the `.webp`** — the `.svg` is always
+written, and it is the more useful artifact anyway if the page can embed SVG.
 
 ## Use
 
@@ -58,6 +78,7 @@ page-extract chart out/assets/s1-img11.bin \
 
 # Draw a figure in your brand and rasterize it
 page-extract figure hub_spokes params.json --out out/fig-1 --logo mylogo.svg
+page-extract figure hub_spokes params.json --out out/fig-1 --backend browser
 
 # What builders exist, and when to pick each
 page-extract builders
@@ -69,7 +90,7 @@ page-extract policy
 
 | Verb | What it does |
 |---|---|
-| `doctor` | Check the install, and name what is missing |
+| `doctor` | Check the install, name what is missing; `--fix` installs it |
 | `harvest` | N URLs → one workspace: extracts, downloads, measures, sheets |
 | `chart` | Chart screenshot → OHLC series (+ a redraw to verify it by eye) |
 | `figure` | Builder + params + brand → SVG and WebP |
@@ -140,6 +161,7 @@ if decide("hub_spokes").format == "figure":
 - [`docs/usage.md`](docs/usage.md) — the full walkthrough, verb by verb
 - [`docs/figures.md`](docs/figures.md) — every builder, its params, and how to add one
 - [`docs/charts.md`](docs/charts.md) — how chart reading works and when it fails
+- [`docs/windows.md`](docs/windows.md) — running on Windows: the two things that differ
 - [`docs/llm-contract.md`](docs/llm-contract.md) — the seam: what to hand a model, and what never to
 
 ## Licence
