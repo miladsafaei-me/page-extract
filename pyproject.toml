@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "page-extract"
+version = "0.1.0"
+description = "Turn a web page into a folder: its substance as data, its visuals measured, and the ones worth keeping redrawn in your own brand."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Milad Safaei", email = "miladsafaei.me@gmail.com" }]
+license = { text = "MIT" }
+keywords = ["scraping", "extraction", "infographics", "svg", "charts", "ocr", "webp"]
+
+# Three dependencies, all pure pip, so a plain install leaves nothing to set up:
+#   beautifulsoup4 + lxml - article extraction from real-world markup
+#   pillow                - image metrics, contact sheets, WebP output
+# SVG rasterization prefers a system `rsvg-convert` or `cairosvg` when present;
+# `page-extract doctor` says which one it found. No browser is required.
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+cairo = ["cairosvg>=2.7"]
+
+[project.scripts]
+page-extract = "page_extract.cli:main"
+pgx = "page_extract.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/miladsafaei-me/page-extract"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/page_extract"]
