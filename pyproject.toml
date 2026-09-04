@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "page-extract"
-version = "0.2.0"
+version = "0.2.1"
 description = "Turn a web page into a folder: its substance as data, its visuals measured, and the ones worth keeping redrawn in your own brand."
 readme = "README.md"
 requires-python = ">=3.10"

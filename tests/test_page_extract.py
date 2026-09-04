@@ -87,6 +87,28 @@ def test_extract_raises_on_a_page_with_no_article():
         extract("https://example.com/x", "<html><body><p>hi</p></body></html>")
 
 
+def test_extract_survives_furniture_nested_inside_furniture():
+    """A noise block inside another noise block must not crash the extraction.
+
+    Both noise passes walk a node list captured before anything was removed, so
+    an inner block can already be gone when its own turn comes -- and bs4 leaves
+    a decomposed node with ``attrs = None``, which raises rather than being an
+    inert no-op. A real archived page crashed here.
+    """
+    body = "".join(f"<p>Sentence number {i} carrying enough words to count as article text.</p>"
+                   for i in range(40))
+    html = (
+        "<html><body><article>"
+        "<div class='sidebar-widget'><div class='related-posts'><nav><a href='/x'>x</a></nav></div></div>"
+        f"{body}"
+        "</article></body></html>"
+    )
+    doc = extract("https://example.com/x", html)
+    text = " ".join(b.get("text", "") for b in doc.blocks)
+    assert "Sentence number 1 " in text, "the article's own paragraphs survive the noise sweep"
+    assert "sidebar" not in text and "related" not in text.lower()
+
+
 # --- brand -----------------------------------------------------------------
 
 def test_brand_defaults_merge_with_overrides():

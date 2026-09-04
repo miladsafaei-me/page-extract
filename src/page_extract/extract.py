@@ -74,11 +74,26 @@ def _article_root(soup):
 
 
 def _strip_noise(root):
+    """Drop the tags and the classed blocks that are page furniture, not article.
+
+    Both loops walk a list that was materialised before any of it was removed, so
+    a node can already have been destroyed by the time its turn comes -- a nav
+    inside a wrapper whose class also matched, say. bs4 empties a decomposed
+    node's ``attrs`` to ``None``, so touching one raises rather than being a
+    harmless no-op, which is why every node is checked before it is read. A page
+    with nested furniture used to crash the whole extraction here.
+    """
     for sel in NOISE_TAGS:
         for node in root.select(sel):
-            node.decompose()
+            if not getattr(node, "decomposed", False):
+                node.decompose()
     for node in root.find_all(attrs={"class": True}):
-        if NOISE_CLASS.search(" ".join(node.get("class", []))):
+        if getattr(node, "decomposed", False) or not node.attrs:
+            continue
+        classes = node.get("class") or []
+        if isinstance(classes, str):
+            classes = classes.split()
+        if NOISE_CLASS.search(" ".join(classes)):
             node.decompose()
     return root
 
