@@ -27,7 +27,7 @@ answer needs a "well, if they also..." then it does not belong here.
    anything about fetching, extracting, rasterizing or branding is not.
 6. **The CLI prints what it wrote.** Every verb ends by naming its output paths.
 7. **Assume the machine is Windows.** Read and write files with an explicit
-   `encoding="utf-8"` — a Windows default is cp1252 and will mangle or refuse
+   `encoding="utf-8"` - a Windows default is cp1252 and will mangle or refuse
    real page text. Never assume a console can print what you extracted. Never
    assume an external program exists: probe for it, and when it is absent say
    what to install *on this platform*, and degrade rather than fail if the rest
